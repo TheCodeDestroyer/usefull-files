@@ -1,0 +1,137 @@
+diff --git a/src/android/com/mirasense/scanditsdk/plugin/ScanditSDK.java b/src/android/com/mirasense/scanditsdk/plugin/ScanditSDK.java
+index 493cc00..cf7f6b7 100644
+--- a/src/android/com/mirasense/scanditsdk/plugin/ScanditSDK.java
++++ b/src/android/com/mirasense/scanditsdk/plugin/ScanditSDK.java
+@@ -256,23 +256,19 @@ public class ScanditSDK extends CordovaPlugin {
+     
+     @Override
+     public void onActivityResult(int requestCode, int resultCode, Intent data) {
+-        if (resultCode == ScanditSDKActivity.SCAN) {
+-            String barcode = data.getExtras().getString("barcode");
+-            String symbology = data.getExtras().getString("symbology");
+-            JSONArray args = new JSONArray();
+-            args.put(barcode);
+-            args.put(symbology);
+-            mCallbackContext.success(args);
+-        
+-        } else if (resultCode == ScanditSDKActivity.MANUAL) {
+-            String barcode = data.getExtras().getString("barcode");
+-            JSONArray args = new JSONArray();
+-            args.put(barcode);
+-            args.put("UNKNOWN");
+-            mCallbackContext.success(args);
+-            
+-        } else if (resultCode == ScanditSDKActivity.CANCEL) {
+-        	mCallbackContext.error("Canceled");
++        switch (resultCode) {
++            case ScanditSDKActivity.SCAN:
++            case ScanditSDKActivity.MANUAL:
++                JSONArray args = new JSONArray();
++                String[] barcodes = data.getExtras().getStringArray(ScanditSDKActivity.BARCODES_EXTRA);
++                for(String s : barcodes) {
++                    args.put(s);
++                }
++                mCallbackContext.success(args);
++                break;
++            case ScanditSDKActivity.CANCEL:
++                mCallbackContext.error("Canceled");
++                break;
+         }
+     }
+ }
+diff --git a/src/android/com/mirasense/scanditsdk/plugin/ScanditSDKActivity.java b/src/android/com/mirasense/scanditsdk/plugin/ScanditSDKActivity.java
+index 32ceccc..a2418e1 100644
+--- a/src/android/com/mirasense/scanditsdk/plugin/ScanditSDKActivity.java
++++ b/src/android/com/mirasense/scanditsdk/plugin/ScanditSDKActivity.java
+@@ -18,6 +18,9 @@
+ 
+ package com.mirasense.scanditsdk.plugin;
+ 
++import java.util.Set;
++import java.util.HashSet;
++
+ import android.app.Activity;
+ import android.content.Intent;
+ import android.content.pm.ActivityInfo;
+@@ -40,12 +43,18 @@ public class ScanditSDKActivity extends Activity implements ScanditSDKListener {
+     public static final int CANCEL = 0;
+     public static final int SCAN = 1;
+     public static final int MANUAL = 2;
++
++    public static final String BARCODES_EXTRA = "barcodes";
+     
+     private ScanditSDK mBarcodePicker;
+-    
++
++    private Set<String> mBarcodes;
++    private boolean mEnableMultiple;
+     
+     @Override
+     protected void onCreate(Bundle savedInstanceState) {
++        mBarcodes = new HashSet<String>();
++        mEnableMultiple = false;
+         initializeAndStartBarcodeRecognition(getIntent().getExtras());
+         super.onCreate(savedInstanceState);
+     }
+@@ -360,6 +369,9 @@ public class ScanditSDKActivity extends Activity implements ScanditSDKListener {
+                 } catch (NumberFormatException e) {}
+             }
+         }
++        if (extras.containsKey("enableMultiple")) {
++            mEnableMultiple = extras.getBoolean("enableMultiple");
++        }
+ 
+         // Register listener, in order to be notified about relevant events 
+         // (e.g. a successfully scanned bar code).
+@@ -386,8 +398,15 @@ public class ScanditSDKActivity extends Activity implements ScanditSDKListener {
+      */
+     public void didCancel() {
+         finishView();
+-        
+-        setResult(CANCEL);
++
++        if(!mBarcodes.isEmpty()) {
++            Intent intent = new Intent();
++            String[] barcodesArray = mBarcodes.toArray(new String[0]);
++            intent.putExtra(BARCODES_EXTRA, barcodesArray);
++            setResult(SCAN, intent);
++        } else {
++            setResult(CANCEL);
++        }
+         finish();
+     }
+ 
+@@ -398,13 +417,16 @@ public class ScanditSDKActivity extends Activity implements ScanditSDKListener {
+      * @param symbology Scanned bar code symbology .
+      */
+     public void didScanBarcode(String barcode, String symbology) {
+-        finishView();
+-        
+-        Intent intent = new Intent();
+-        intent.putExtra("barcode", barcode.trim());
+-        intent.putExtra("symbology", symbology);
+-        setResult(SCAN, intent);
+-        finish();
++        if (!mEnableMultiple) {
++            finishView();
++
++            Intent intent = new Intent();
++            intent.putExtra(BARCODES_EXTRA, new String[]{barcode.trim()});
++            setResult(SCAN, intent);
++            finish();
++        } else {
++            mBarcodes.add(barcode.trim());    
++        }
+     }
+ 
+     /** 
+@@ -414,8 +436,7 @@ public class ScanditSDKActivity extends Activity implements ScanditSDKListener {
+      */
+     public void didManualSearch(String entry) {
+         Intent intent = new Intent();
+-        intent.putExtra("barcode", entry.trim());
+-        intent.putExtra("symbology", "UNKNOWN");
++        intent.putExtra(BARCODES_EXTRA, new String[]{entry.trim()});
+         setResult(MANUAL, intent);
+         finish();
+     }
